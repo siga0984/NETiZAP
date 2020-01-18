@@ -42,11 +42,9 @@ SET CENTURY ON
 // Usa uma fonte Fixed Size
 oFont := TFont():New('Courier new',,-14,.T.,.T.)
 
-// Seta que esta é a fonte DEFAULT para Interface
-SETDEFFONT(oFont)
-
 // Cria a janela principal
-DEFINE WINDOW oMainWnd FROM 0,0 to 1280,1024 PIXEL ; 
+DEFINE DIALOG oMainWnd FROM 0,0 to 768,1280 PIXEL ; 
+  FONT oFont ;
 	TITLE (cTitle) COLOR CLR_BLACK, CLR_WHITE  
 
 // Cria o painel superior 
@@ -298,7 +296,7 @@ oGetResponse:LREADONLY := .T.
 oGetResponse:ALIGN := CONTROL_ALIGN_ALLCLIENT
 
 // Ativa a janela principal 
-ACTIVATE WINDOW oMainWnd MAXIMIZED
+ACTIVATE DIALOG oMainWnd CENTER 
 
 Return
 
