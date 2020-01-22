@@ -33,6 +33,7 @@ Local cQuestion   := space(30)
 Local cReference  := space(60)
 Local cFileName   := space(20)
 Local cFileType   := space(3)
+Local cFile2Send  := space(60) 
 Local cResponse   := ''
 
 // Formato de Data 
@@ -183,22 +184,27 @@ oAba3 := oFolders:aDialogs[3]
 @ 70,10 SAY "Text (Mensagem a enviar) " SIZE 180,12 OF oAba3 PIXEL 
 @ 85-2,10 GET oGet13 VAR cText MULTILINE SIZE 200,48 OF oAba3 PIXEL 
 
-@ 140,10 SAY "File (Nome do Arquivo)" SIZE 180,12 OF oAba3 PIXEL 
+@ 140,10 SAY "File (Arquivo da Mensagem)" SIZE 180,12 OF oAba3 PIXEL 
 @ 155-2,10 GET oGet14 VAR cFileName SIZE 200,12 OF oAba3 PIXEL 
 
-@ 175,10 BUTTON oBtn3 PROMPT "Envia Arquivo" ACTION (	oNetIZap:Reset(),;
+@ 170,10 SAY "Arquivo a Enviar" SIZE 180,12 OF oAba3 PIXEL 
+@ 185-2,10 GET oGetF VAR cFile2Send SIZE 200,12 OF oAba3 PIXEL 
+
+@ 200,10 SAY "Tipo do Arquivo" SIZE 180,12 OF oAba3 PIXEL 
+@ 215-2,10 GET oGetF VAR cFileType PICTURE "@!" SIZE 30,12 OF oAba3 PIXEL 
+
+@ 235,10 BUTTON oBtn3 PROMPT "Envia Arquivo" ACTION (	oNetIZap:Reset(),;
 												oNetIZap:SetLine(cLine),;
 												oNetIZap:SetAccessKey(cAccessKey),;
 												oNetIZap:SetPort(nPort),;
 												oNetIZap:SetDestiny(cDestiny),;
 												oNetIZap:SetReference(cReference),;
 												oNetIZap:SetText(EncodeUTF8(cText)),;
-												oNetIZap:SetFile(cFileName,cFileType,LoadFile64(cFile2Send)),;
-												MsgRun("Enviando Mensagem com Arquivo...","Aguarde",{||FileSend(oNetIZap,oGetResponse)}) ) ;
+												MsgRun("Enviando Mensagem com Arquivo...","Aguarde",{||FileSend(oNetIZap,oGetResponse,cFileName,cFileType,cFile2Send)}) ) ;
 												OF oAba3 PIXEL 
 
 
-@ 190,10 SAY "Um arquivo pode ser escolhido e enviado junto da mensagem. O Conteudo do arquivo deve ser enviado  "+;
+@ 250,10 SAY "Um arquivo pode ser escolhido e enviado junto da mensagem. O Conteudo do arquivo deve ser enviado  "+;
 			 "codificado em BASE64. O nome do arquivo que enviamos é o nome que será usado para identificar o arquivo "+;
 			 "dentro da mensagem." SIZE 200,120 OF oAba3 PIXEL 
 
@@ -360,9 +366,31 @@ Return
 Ação de envio de uma mensagem com arquivo anexo
 ----------------------------------------------------------- */
 
-STATIC Function FileSend(oNetIZap,oGetResponse)
+STATIC Function FileSend(oNetIZap,oGetResponse,cFileName,cFileType,cFile2Send)
 Local cMsg := ''
 
+cFileName := alltrim(cFileName)
+cFile2Send := alltrim(cFile2Send)
+
+if empty(cFileName)
+	MsgStop("Nome do Arquivo para a mensagem nao informado.")
+	return
+Endif
+
+if empty(cFileType)
+	MsgStop("Tipo do Arquivo para enviar nao informado.")
+	return
+Endif
+
+IF !file(cFile2Send)
+	MsgStop("Arquivo para enviar ["+cFile2Send+"] nao encontrado.")
+	return
+Endif
+
+// Carrega o arquivo e seta os dados de envio para a mensagem
+oNetIZap:SetFile(cFileName,cFileType,LoadFile64(cFile2Send))
+
+// Envia a mensagem com o arquivo 
 If oNetIZap:FileSend()
 
 	cMsg := oNetIZap:GetResponse()
@@ -533,4 +561,20 @@ eval(oGetResponse:bSetGet,cMsg)
 oGetResponse:Refresh()
 
 Return
+
+STATIC Function LoadFile64(cFile)
+Local nH, nSize, cBuffer := ""
+nH := fopen(cFile)
+If nH < 0 
+	USerException("LoadFile64 error - File ["+cfile+"] - Open Error "+cValToChar(ferror()))
+Endif
+nSize := fSeek(nH,0,2)
+If nSize <= 0 
+	USerException("LoadFile64 error - File ["+cfile+"] - Invalid Empty File ")
+Endif
+fseek(nh,0)
+fRead(nH,@cBuffer,nSize)
+fClose(nH)
+
+Return Encode64(cBuffer)
 
