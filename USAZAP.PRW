@@ -1,5 +1,6 @@
 #Include 'Protheus.ch'
 #Include 'Rwmake.ch'
+#include 'Fileio.ch'
 
 //   +----------------------------------------------------------------------------------------------------------------------+
 //   |                       FUNÇÃO: FONTE DE FUNÇÕES GENERICAS PARA O WHATSAPP 	          		        	                  |
@@ -53,6 +54,11 @@ USER FUNCTION ENVFLZAP(cNumCel,cMsg,cReference,cNomArq,cTpArquivo,cCaminho)
     Local oNetIZap
     Local cProtocolo
     Local oJson	:= JsonObject():new()
+	
+	Local cTexto := ""
+	Local aFiles := {}
+	Local aSizes := {}
+	
     DEFAULT cReference  := " "
 
     //Instancio a Classe que faz ligação com a API NETiZAP
@@ -72,7 +78,13 @@ USER FUNCTION ENVFLZAP(cNumCel,cMsg,cReference,cNomArq,cTpArquivo,cCaminho)
     //Informo o nome escolhido do arquivo, o tipo e o caminho fisico onde ele se encontra.
     //OBS. cCaminho deve estar no formato \NOME_REAL_ARQUIVO.EXTENÇÂO exemplo: \filetosend.pdf
     //OBS².cCaminho segue a partir do ROOTPATH do appserver
-    oNetIZap:SetFile(cNomArq,cTpArquivo,Encode64(MemoRead(cCaminho)))
+
+    ADir(cCaminho, aFiles, aSizes)//Verifica o tamanho do arquivo, parâmetro exigido na FRead.
+	nHandle := fopen(cCaminho , FO_READWRITE + FO_SHARED )
+	cString := ""
+	FRead( nHandle, cString, aSizes[1] ) //Carrega na variável cString, a string ASCII do arquivo.
+	cTexto := Encode64(cString) //Converte o arquivo para BASE64	
+	oNetIZap:SetFile(cNomArq,cTpArquivo,cTexto)	
 
     // Realiza o envio da mensagem
     If oNetIZap:FileSend()
@@ -329,5 +341,4 @@ USER FUNCTION RECRSZAP()
         MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cResponse) - Falha na inserção de dados com a classe JsonObject()')
     EndIf
 RETURN aArray
-
 
