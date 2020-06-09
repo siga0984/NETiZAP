@@ -24,7 +24,7 @@
 //   |               |                                             |    C - OPÇÕES                                    	    |
 //   +----------------------------------------------------------------------------------------------------------------------+
 //   | U_ENVFLZAP    | ENVIA ARQUIVO NO WHATSAPP                   |    C - NUM.CELULAR ; C - MENSAGEM     ; C - REFERENCIA |
-//   |               |                                             |    C - NOM.ARQUIVO ; C - TIPO.ARQUIVO ; C - CAMINHO    |    	        
+//   |               |                                             |    C - NOM.ARQUIVO ; C - TIPO.ARQUIVO ; C - CAMINHO    |
 //   +----------------------------------------------------------------------------------------------------------------------+
 //   | U_RECMGZAP    | VERIF SE MENSAGEM FOI LIDA                  |    C - NUM.PROTOCOLO                  	                |
 //   +----------------------------------------------------------------------------------------------------------------------+
@@ -51,66 +51,82 @@
 //   +------------------------------------------------------------------------------+
 
 USER FUNCTION ENVFLZAP(cNumCel,cMsg,cReference,cNomArq,cTpArquivo,cCaminho)
-    Local oNetIZap
-    Local cProtocolo
-    Local oJson	:= JsonObject():new()
+Local oNetIZap
+Local cProtocolo
+Local oJson	:= JsonObject():new()
+
+Local cTexto := ""
+Local nFSize
+
+DEFAULT cReference  := " "
+
+//Instancio a Classe que faz ligação com a API NETiZAP
+oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
+
+// Define as propriedades minimas para envio de mensagem
+
+//Define o numero destino
+oNetIZap:SetDestiny(cNumCel)
+
+// Informa o texto da mensagem
+oNetIZap:SetText(EncodeUTF8(cMsg))
+
+// Define a Referencia, forma identificar a mensagem para uso posterior
+oNetIZap:SetReference(cReference)
+
+//Informo o nome escolhido do arquivo, o tipo e o caminho fisico onde ele se encontra.
+//OBS. cCaminho deve estar no formato \NOME_REAL_ARQUIVO.EXTENÇÂO exemplo: \filetosend.pdf
+//OBS².cCaminho segue a partir do ROOTPATH do appserver
+
+nHandle := fopen(cCaminho , FO_READ + FO_SHARED )
+If nHandle == -1 
+	MSgStop("FOpen() Failed - FError("+cValToChar(ferror())+")",'FileSend() - Falha na abertura do arquivo')
+  return ""
+Endif      
+
+// Pega o tamanho do arquivo 
+nFSize := FSeek(nHandle,0,FS_END)
+FSeek(nHandle,0)
+
+If nFSize < 1 
+	MSgStop("Invalid File Size",'FileSend() - ARquivo vazio')
+  return ""
+Endif      
+
+// Le o arquivo 
+cString := space(nFSize)
+FRead( nHandle, @cString, nFSize ) //Carrega na variável cString, a string ASCII do arquivo.
+
+FClose(nHandle)
+
+cTexto := Encode64(cString) // Converte o arquivo para BASE64
+oNetIZap:SetFile(cNomArq,cTpArquivo,cTexto)
+
+// Realiza o envio da mensagem
+If oNetIZap:FileSend()
 	
-	Local cTexto := ""
-	Local aFiles := {}
-	Local aSizes := {}
+	// Pega o JSON de retorno da requisiçao
+	// Cada mensagem enviada retorna um identificador de protocolo
+	// no formato "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
+	cProtocolo := oNetIZap:GetResponse()
 	
-    DEFAULT cReference  := " "
+Else
+	
+	// Em caso de falha no envio, recupera o erro
+	MSgStop(oNetIZap:GetLastError(),'FileSend() - Falha no envio da requisição')
+	
+Endif
 
-    //Instancio a Classe que faz ligação com a API NETiZAP
-    oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
+//Coloco o JSON vindo da classe NETiZAP no objeto oJson desta função
+cErro := oJson:fromJSON(cProtocolo)
 
-    // Define as propriedades minimas para envio de mensagem
-
-    //Define o numero destino
-    oNetIZap:SetDestiny(cNumCel)
-
-    // Informa o texto da mensagem
-    oNetIZap:SetText(EncodeUTF8(cMsg))
-
-    // Define a Referencia, forma identificar a mensagem para uso posterior
-    oNetIZap:SetReference(cReference)
-
-    //Informo o nome escolhido do arquivo, o tipo e o caminho fisico onde ele se encontra.
-    //OBS. cCaminho deve estar no formato \NOME_REAL_ARQUIVO.EXTENÇÂO exemplo: \filetosend.pdf
-    //OBS².cCaminho segue a partir do ROOTPATH do appserver
-
-    ADir(cCaminho, aFiles, aSizes)//Verifica o tamanho do arquivo, parâmetro exigido na FRead.
-	nHandle := fopen(cCaminho , FO_READWRITE + FO_SHARED )
-	cString := ""
-	FRead( nHandle, cString, aSizes[1] ) //Carrega na variável cString, a string ASCII do arquivo.
-	cTexto := Encode64(cString) //Converte o arquivo para BASE64	
-	oNetIZap:SetFile(cNomArq,cTpArquivo,cTexto)	
-
-    // Realiza o envio da mensagem
-    If oNetIZap:FileSend()
-
-        // Pega o JSON de retorno da requisiçao
-        // Cada mensagem enviada retorna um identificador de protocolo
-        // no formato "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
-        cProtocolo := oNetIZap:GetResponse()
-
-    Else
-
-        // Em caso de falha no envio, recupera o erro
-        MSgStop(oNetIZap:GetLastError(),'FileSend() - Falha no envio da requisição')
-
-    Endif
-
-    //Coloco o JSON vindo da classe NETiZAP no objeto oJson desta função
-    cErro := oJson:fromJSON(cProtocolo)
-
-    //Verifico se ocorreu algum erro no metodo fromJSON
-    If Len(AllTrim(cErro)) == 0
-        //Ja trato o JSON e retorno apenas o protocolo para facilitar no uso da USER FUNCTION
-        cProtocolo:=oJson:GetJsonObject("result")
-    else
-        MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cProtocolo) - Falha na inserção de dados com a classe JsonObject()')
-    EndIf
+//Verifico se ocorreu algum erro no metodo fromJSON
+If Len(AllTrim(cErro)) == 0
+	//Ja trato o JSON e retorno apenas o protocolo para facilitar no uso da USER FUNCTION
+	cProtocolo:=oJson:GetJsonObject("result")
+else
+	MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cProtocolo) - Falha na inserção de dados com a classe JsonObject()')
+EndIf
 RETURN cProtocolo
 
 //   +------------------------------------------------------------------------------+
@@ -126,50 +142,50 @@ RETURN cProtocolo
 //   +------------------------------------------------------------------------------+
 
 USER FUNCTION ENVMGZAP(cNumCel,cMsg,cReference)
-    Local oNetIZap
-    Local cProtocolo
-    Local oJson	:= JsonObject():new()
-    DEFAULT cReference  := " "
+Local oNetIZap
+Local cProtocolo
+Local oJson	:= JsonObject():new()
+DEFAULT cReference  := " "
 
-    //Instancio a Classe que faz ligação com a API NETiZAP
-    oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
+//Instancio a Classe que faz ligação com a API NETiZAP
+oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
 
-    // Define as propriedades minimas para envio de mensagem
+// Define as propriedades minimas para envio de mensagem
 
-    //Define o numero destino
-    oNetIZap:SetDestiny(cNumCel)
+//Define o numero destino
+oNetIZap:SetDestiny(cNumCel)
 
-    // Informa o texto da mensagem
-    oNetIZap:SetText(EncodeUTF8(cMsg))
+// Informa o texto da mensagem
+oNetIZap:SetText(EncodeUTF8(cMsg))
 
-    // Define a Referencia, forma identificar a mensagem para uso posterior
-    oNetIZap:SetReference(cReference)
+// Define a Referencia, forma identificar a mensagem para uso posterior
+oNetIZap:SetReference(cReference)
 
-    // Realiza o envio da mensagem
-    If oNetIZap:MessageSend()
+// Realiza o envio da mensagem
+If oNetIZap:MessageSend()
+	
+	// Pega o JSON de retorno da requisiçao
+	// Cada mensagem enviada retorna um identificador de protocolo
+	// no formato "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
+	cProtocolo := oNetIZap:GetResponse()
+	
+Else
+	
+	// Em caso de falha no envio, recupera o erro
+	MSgStop(oNetIZap:GetLastError(),'MessageSend() - Falha no envio da requisição')
+	
+Endif
 
-        // Pega o JSON de retorno da requisiçao
-        // Cada mensagem enviada retorna um identificador de protocolo
-        // no formato "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
-        cProtocolo := oNetIZap:GetResponse()
+//Coloco o JSON vindo da classe NETiZAP no objeto oJson desta função
+cErro := oJson:fromJSON(cProtocolo)
 
-    Else
-
-        // Em caso de falha no envio, recupera o erro
-        MSgStop(oNetIZap:GetLastError(),'MessageSend() - Falha no envio da requisição')
-
-    Endif
-
-    //Coloco o JSON vindo da classe NETiZAP no objeto oJson desta função
-    cErro := oJson:fromJSON(cProtocolo)
-
-    //Verifico se ocorreu algum erro no metodo fromJSON
-    If Len(AllTrim(cErro)) == 0
-        //Ja trato o JSON e retorno apenas o protocolo para facilitar no uso da USER FUNCTION
-        cProtocolo:=oJson:GetJsonObject("result")
-    else
-        MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cProtocolo) - Falha na inserção de dados com a classe JsonObject()')
-    EndIf
+//Verifico se ocorreu algum erro no metodo fromJSON
+If Len(AllTrim(cErro)) == 0
+	//Ja trato o JSON e retorno apenas o protocolo para facilitar no uso da USER FUNCTION
+	cProtocolo:=oJson:GetJsonObject("result")
+else
+	MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cProtocolo) - Falha na inserção de dados com a classe JsonObject()')
+EndIf
 RETURN cProtocolo
 
 //   +------------------------------------------------------------------------------+
@@ -185,48 +201,48 @@ RETURN cProtocolo
 //   +------------------------------------------------------------------------------+
 
 USER FUNCTION ENVPGZAP(cNumCel, cMsg, cReference, cOpcoes)
-    Local oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
-    Local cProtocolo
-    Local cErro
-    Local oJson	:= JsonObject():new()
-    DEFAULT cReference  := " "
+Local oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
+Local cProtocolo
+Local cErro
+Local oJson	:= JsonObject():new()
+DEFAULT cReference  := " "
 
-    //Define o numero destino
-    oNetIZap:SetDestiny(cNumCel)
+//Define o numero destino
+oNetIZap:SetDestiny(cNumCel)
 
-    // Informa o texto da mensagem
-    oNetIZap:SetText(EncodeUTF8(cMsg))
+// Informa o texto da mensagem
+oNetIZap:SetText(EncodeUTF8(cMsg))
 
-    // Define a Referencia, forma identificar a mensagem para uso posterior
-    oNetIZap:SetReference(cReference)
+// Define a Referencia, forma identificar a mensagem para uso posterior
+oNetIZap:SetReference(cReference)
 
-    //Determino as repostas validas
-    oNetIZap:SetQuestion(cOpcoes)
+//Determino as repostas validas
+oNetIZap:SetQuestion(cOpcoes)
 
-    // Realiza o envio da mensagem
-    If oNetIZap:QuestionSend()
+// Realiza o envio da mensagem
+If oNetIZap:QuestionSend()
+	
+	// Pega o JSON de retorno da requisiçao
+	// Cada mensagem enviada retorna um identificador de protocolo
+	// no formato "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
+	cProtocolo := oNetIZap:GetResponse()
+	
+Else
+	
+	// Em caso de falha no envio, recupera o erro
+	MSgStop(oNetIZap:GetLastError(),'QuestionSend() - Falha no envio da requisição')
+	
+Endif
+//Coloco o JSON vindo da classe NETiZAP no objeto oJson desta função
+cErro := oJson:fromJSON(cProtocolo)
 
-        // Pega o JSON de retorno da requisiçao
-        // Cada mensagem enviada retorna um identificador de protocolo
-        // no formato "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
-        cProtocolo := oNetIZap:GetResponse()
-
-    Else
-
-        // Em caso de falha no envio, recupera o erro
-        MSgStop(oNetIZap:GetLastError(),'QuestionSend() - Falha no envio da requisição')
-
-    Endif
-    //Coloco o JSON vindo da classe NETiZAP no objeto oJson desta função
-    cErro := oJson:fromJSON(cProtocolo)
-
-    //Verifico se ocorreu algum erro no metodo fromJSON
-    If Len(AllTrim(cErro)) == 0
-        //Ja trato o JSON e retorno apenas o protocolo para facilitar no uso da USER FUNCTION
-        cProtocolo:=oJson:GetJsonObject("result")
-    else
-        MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cProtocolo) - Falha na inserção de dados com a classe JsonObject()')
-    EndIf
+//Verifico se ocorreu algum erro no metodo fromJSON
+If Len(AllTrim(cErro)) == 0
+	//Ja trato o JSON e retorno apenas o protocolo para facilitar no uso da USER FUNCTION
+	cProtocolo:=oJson:GetJsonObject("result")
+else
+	MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cProtocolo) - Falha na inserção de dados com a classe JsonObject()')
+EndIf
 RETURN cProtocolo
 
 //   +------------------------------------------------------------------------------+
@@ -243,23 +259,23 @@ RETURN cProtocolo
 //   +------------------------------------------------------------------------------+
 
 USER FUNCTION RECMGZAP(cProtocolo)
-    Local oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
-    Local cResponse
+Local oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
+Local cResponse
 
-    // Informa o protococolo da mensagem a ser pesquisada
-    oNetIZap:SetProtocol(cProtocolo)
+// Informa o protococolo da mensagem a ser pesquisada
+oNetIZap:SetProtocol(cProtocolo)
 
-    //Realizo a Procura da mensagem
-    If oNetIZap:MessageSearch()
-
-        //Armazeno o JSON retornado em caso de sucesso
-        cResponse := oNetIZap:GetResponse()
-
-    Else
-
-        MsgStop(oNetIZap:GetLastError(),'MessageSearch() - Falha no envio da requisição')
-
-    Endif
+//Realizo a Procura da mensagem
+If oNetIZap:MessageSearch()
+	
+	//Armazeno o JSON retornado em caso de sucesso
+	cResponse := oNetIZap:GetResponse()
+	
+Else
+	
+	MsgStop(oNetIZap:GetLastError(),'MessageSearch() - Falha no envio da requisição')
+	
+Endif
 
 RETURN cResponse
 
@@ -279,23 +295,23 @@ RETURN cResponse
 //   +--------------------------------------------------------------------------------+
 
 USER FUNCTION RECPGZAP(cProtocolo)
-    Local oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
-    Local cResponse
+Local oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
+Local cResponse
 
-    // Informa o protococolo da mensagem a ser pesquisada
-    oNetIZap:SetProtocol(cProtocolo)
+// Informa o protococolo da mensagem a ser pesquisada
+oNetIZap:SetProtocol(cProtocolo)
 
-    //Procuro pela pergunta
-    If oNetIZap:QuestionSearch()
-
-        //Armazeno o JSON retornado em caso de sucesso
-        cResponse := oNetIZap:GetResponse()
-
-    Else
-
-        MsgStop(oNetIZap:GetLastError(),'QuestionSearch() - Falha no envio da requisição')
-
-    Endif
+//Procuro pela pergunta
+If oNetIZap:QuestionSearch()
+	
+	//Armazeno o JSON retornado em caso de sucesso
+	cResponse := oNetIZap:GetResponse()
+	
+Else
+	
+	MsgStop(oNetIZap:GetLastError(),'QuestionSearch() - Falha no envio da requisição')
+	
+Endif
 RETURN cResponse
 
 //   +----------------------------------------------------------------------------------------+
@@ -316,29 +332,29 @@ RETURN cResponse
 //   +----------------------------------------------------------------------------------------+
 
 USER FUNCTION RECRSZAP()
-    Local oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
-    Local cResponse
-    Local cErro
-    Local oJson	:= JsonObject():new()
-    Local aArray:={}
+Local oNetIZap  := NETIZAP():New(SuperGetMv("MV_CELZAP"),SuperGetMv("MV_CHAVZAP"),SuperGetMv("MV_HTTPZAP"))
+Local cResponse
+Local cErro
+Local oJson	:= JsonObject():new()
+Local aArray:={}
 
-    //Realizo o Request
-    If oNetIZap:RequestsStart()
+//Realizo o Request
+If oNetIZap:RequestsStart()
+	
+	//Armazeno o JSON retornado em caso de sucesso
+	cResponse := oNetIZap:GetResponse()
+Else
+	MsgStop(oNetIZap:GetLastError(),'RequestsStart() - Falha no envio da requisição')
+ENDIF
 
-        //Armazeno o JSON retornado em caso de sucesso
-        cResponse := oNetIZap:GetResponse()
-    Else
-        MsgStop(oNetIZap:GetLastError(),'RequestsStart() - Falha no envio da requisição')
-    ENDIF
+//Coloco o JSON vindo da classe NETiZAP no objeto oJson desta função
+cErro := oJson:fromJSON(cResponse)
 
-    //Coloco o JSON vindo da classe NETiZAP no objeto oJson desta função
-    cErro := oJson:fromJSON(cResponse)
-
-    //Verifico se ocorreu algum erro no metodo fromJSON
-    If Len(AllTrim(cErro)) == 0
-        aArray:=oJson:GetJsonObject("root")
-    else
-        MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cResponse) - Falha na inserção de dados com a classe JsonObject()')
-    EndIf
+//Verifico se ocorreu algum erro no metodo fromJSON
+If Len(AllTrim(cErro)) == 0
+	aArray:=oJson:GetJsonObject("root")
+else
+	MsgStop(oNetIZap:GetLastError(),'oJson:fromJSON(cResponse) - Falha na inserção de dados com a classe JsonObject()')
+EndIf
 RETURN aArray
 
