@@ -401,8 +401,8 @@ cPostParms := 'app='+URLEncode(::cApp)
 cPostParms += '&key='+URLEncode(::cAccessKey)
 cPostParms += '&text='+UrlEncode(::cText)
 cPostParms += '&type='+URLEncode(::cFileType)
-cPostParms += '&stream='+::cFileStream
-cPostParms += '&filename='+::cFileName
+cPostParms += '&stream='+UrlEncode(::cFileStream)
+cPostParms += '&filename='+UrlEncode(::cFileName)
 
 // Monta os parametros para URL / GET 
 cUrlParms := 'line=' + ::cLine
